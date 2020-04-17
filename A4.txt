@@ -1,0 +1,1167 @@
+library(igraph)
+library(tidyverse)
+library(data.table)
+
+
+# reading in data
+setwd("C:/Users/Adil Ashish Kumar/Desktop/673 - Social Network/A4")
+rev_data = fread("box_office_revenues.csv", header = TRUE)
+cast_data = fread("film_cast_members.csv", header = TRUE)
+key_data = fread("film_keywords.csv", header = TRUE)
+prodfil_data = fread("producers_and_films.csv", header = TRUE)
+prodsub_data = fread("production_subsidiaries.csv", header = TRUE)
+
+
+# filtering to get only hollywood data
+prodfil_data = prodfil_data[prodfil_data$country =="us",]
+# adding dummy column to sum movie counts later
+prodfil_data$mct =1
+# need to get year wise company wise movies made
+#year - company wise movie count
+mctlist <-setNames(aggregate(prodfil_data$mct, by=list(prodfil_data$year,prodfil_data$pcindex),FUN=sum, na.rm=TRUE),c("year", "company","moviecount"))
+# unique years from data
+yearlist = unique(mctlist$year)
+# sort years by chronology
+yearlist = sort(yearlist)
+
+# finding top quartle film count by year
+temp = NULL
+for(i in 1:length(yearlist))
+{
+  j = yearlist[i]
+  qtlist <-mctlist[mctlist$year==j,]
+  qtlist$qt = quantile(qtlist$moviecount,0.75)
+  temp = rbind(qtlist,temp)
+  qtlist = NULL
+}
+
+genlist1 = temp
+# column to flag if a company was in top quartile or not
+genlist1$co = ifelse(genlist1$moviecount>= genlist1$qt,1,0)
+
+
+#filtering above to keep only company yearwise top quartile flag
+cfil = c("year","company","co")
+clist = genlist1[cfil]
+names(clist)[names(clist) == "company"] <- "pcindex"
+
+#filtering original data to get movie-producer by year list
+fil = prodfil_data
+dr = c("pindex","pcindex","year")
+#dr1 = c("pindex","pcindex")
+
+fil = as.data.frame(fil)
+fil = fil[dr]
+fil = unique(fil)
+
+#joining top quartile comp list to above data
+fil2 = left_join(fil, clist)
+
+# getting sum of the quartile flag to use later, by movie
+fil3 <-setNames(aggregate(fil2$co, by=list(fil2$pindex),FUN=sum, na.rm=TRUE),c("movie","flag"))
+
+# creating a flag to count how many comps worked on a movie
+fil2$flag2 = 1
+
+#summing the flag to get comp count by movie
+fil4 <-setNames(aggregate(fil2$flag2, by=list(fil2$pindex),FUN=sum, na.rm=TRUE),c("movie","pct"))
+
+# movie wise no of comps and sum of qtscores
+fil5 = left_join(fil3,fil4)
+
+# flag to indicate solo prod
+fil5$prod1 = ifelse(fil5$pct==1,1,0)
+
+#more helper flags to categorize movies
+fil5$con = paste0(fil5$prod1,'x',fil5$flag)
+fil5$div =fil5$flag/fil5$pct
+
+#classifying movies based on conditions
+fil5$class1 = ifelse(fil5$con == '1x1',"Central solo productions","")
+fil5$class2= ifelse(fil5$con == '1x0',"Peripheral solo productions","")
+fil5$class3= ifelse(fil5$con == '0x0',"Peripheral co-productions","")
+fil5$class4= ifelse(fil5$div ==1 & fil5$prod1 == 0, "Central co-productions","")
+fil5$class5= ifelse(fil5$div !=1 & fil5$div !=0 & fil5$prod1 == 0, "Hybrid co-productions","")
+
+fil5$class = paste0(fil5$class1,fil5$class2,fil5$class3,fil5$class4,fil5$class5) 
+
+#movie wise class data
+dr2 = c("movie","class")
+fil6 = fil5[dr2]
+
+#prepping keyword data
+key = key_data
+key = as.data.frame(key)
+
+#getting movies by year list
+d1 = c("pindex","year")
+prodfil_data = as.data.frame(prodfil_data)
+p1 = prodfil_data[d1]
+p1 = unique(p1)
+# yearwise movie wise keywords used
+p2 = left_join(key,p1)
+
+# yearwise keywords used
+ykf = p2
+ykf$pindex = NULL
+ykf = unique(ykf)
+
+# year to year period mapping for keyword refresh rate
+yp = c("1985","1985","1985-86","1985-87","1986-88","1987-89","1988-90","1989-91","1990-92","1991-93","1992-94","1993-95","1994-96","1995-97","1996-98","1997-99","1998-00","1999-01","2000-02","2001-03","2002-04","2003-05","2004-06","2005-07","2006-08","2007-09","2008-10","2009-11","2010-12","2011-13","2012-14","2013-15","2014-16","2015-17","2016-18")
+ymap= cbind(yearlist,yp)
+ymap = as.data.frame(ymap)
+names(ymap)[names(ymap) == "yearlist"] <- "year"
+ymap$year = as.integer(as.character(ymap$year))
+
+#joining to keyword data
+p3 = left_join(p2,ymap)
+
+# getting period wise keywords used
+m201618 = ykf[ykf$year %in% c(2016,2017,2018),]
+m201618$year = NULL
+m201618$yp = "2016-18"
+m201618 = unique(m201618)
+
+m201517 = ykf[ykf$year %in% c(2015,2016,2017),]
+m201517$year = NULL
+m201517$yp = "2015-17"
+m201517 = unique(m201517)
+
+m201416 = ykf[ykf$year %in% c(2014,2015,2016),]
+m201416$year = NULL
+m201416$yp = "2014-16"
+m201416 = unique(m201416)
+
+m201315 = ykf[ykf$year %in% c(2013,2014,2015),]
+m201315$year = NULL
+m201315$yp = "2013-15"
+m201315 = unique(m201315)
+
+m201214 = ykf[ykf$year %in% c(2012,2013,2014),]
+m201214$year = NULL
+m201214$yp = "2012-14"
+m201214 = unique(m201214)
+
+m201113 = ykf[ykf$year %in% c(2011,2012,2013),]
+m201113$year = NULL
+m201113$yp = "2011-13"
+m201113 = unique(m201113)
+
+m201012 = ykf[ykf$year %in% c(2010,2011,2012),]
+m201012$year = NULL
+m201012$yp = "2010-12"
+m201012 = unique(m201012)
+
+m200911 = ykf[ykf$year %in% c(2009,2010,2011),]
+m200911$year = NULL
+m200911$yp = "2009-11"
+m200911 = unique(m200911)
+
+m200810 = ykf[ykf$year %in% c(2008,2009,2010),]
+m200810$year = NULL
+m200810$yp = "2008-10"
+m200810 = unique(m200810)
+
+m200709 = ykf[ykf$year %in% c(2007,2008,2009),]
+m200709$year = NULL
+m200709$yp = "2007-09"
+m200709 = unique(m200709)
+
+m200608 = ykf[ykf$year %in% c(2006,2007,2008),]
+m200608$year = NULL
+m200608$yp = "2006-08"
+m200608 = unique(m200608)
+
+m200507 = ykf[ykf$year %in% c(2005,2006,2007),]
+m200507$year = NULL
+m200507$yp = "2005-07"
+m200507 = unique(m200507)
+
+m200406 = ykf[ykf$year %in% c(2004,2005,2006),]
+m200406$year = NULL
+m200406$yp = "2004-06"
+m200406 = unique(m200406)
+
+m200305 = ykf[ykf$year %in% c(2003,2004,2005),]
+m200305$year = NULL
+m200305$yp = "2003-05"
+m200305 = unique(m200305)
+
+m200204 = ykf[ykf$year %in% c(2002,2003,2004),]
+m200204$year = NULL
+m200204$yp = "2002-04"
+m200204 = unique(m200204)
+
+m200103 = ykf[ykf$year %in% c(2001,2002,2003),]
+m200103$year = NULL
+m200103$yp = "2001-03"
+m200103 = unique(m200103)
+
+m200002 = ykf[ykf$year %in% c(2000,2001,2002),]
+m200002$year = NULL
+m200002$yp = "2000-02"
+m200002 = unique(m200002)
+
+m199901 = ykf[ykf$year %in% c(1999,2000,2001),]
+m199901$year = NULL
+m199901$yp = "1999-01"
+m199901 = unique(m199901)
+
+m199800 = ykf[ykf$year %in% c(1998,1999,2000),]
+m199800$year = NULL
+m199800$yp = "1998-00"
+m199800 = unique(m199800)
+
+m199799 = ykf[ykf$year %in% c(1997,1998,1999),]
+m199799$year = NULL
+m199799$yp = "1997-99"
+m199799 = unique(m199799)
+
+m199698 = ykf[ykf$year %in% c(1996,1997,1998),]
+m199698$year = NULL
+m199698$yp = "1996-98"
+m199698 = unique(m199698)
+
+m199597 = ykf[ykf$year %in% c(1995,1996,1997),]
+m199597$year = NULL
+m199597$yp = "1995-97"
+m199597 = unique(m199597)
+
+m199496 = ykf[ykf$year %in% c(1994,1995,1996),]
+m199496$year = NULL
+m199496$yp = "1994-96"
+m199496 = unique(m199496)
+
+m199395 = ykf[ykf$year %in% c(1993,1994,1995),]
+m199395$year = NULL
+m199395$yp = "1993-95"
+m199395 = unique(m199395)
+
+m199294 = ykf[ykf$year %in% c(1992,1993,1994),]
+m199294$year = NULL
+m199294$yp = "1992-94"
+m199294 = unique(m199294)
+
+m199193 = ykf[ykf$year %in% c(1991,1992,1993),]
+m199193$year = NULL
+m199193$yp = "1991-93"
+m199193 = unique(m199193)
+
+m199092 = ykf[ykf$year %in% c(1990,1991,1992),]
+m199092$year = NULL
+m199092$yp = "1990-92"
+m199092 = unique(m199092)
+
+m198991 = ykf[ykf$year %in% c(1989,1990,1991),]
+m198991$year = NULL
+m198991$yp = "1989-91"
+m198991 = unique(m198991)
+
+m198890 = ykf[ykf$year %in% c(1988,1989,1990),]
+m198890$year = NULL
+m198890$yp = "1988-90"
+m198890 = unique(m198890)
+
+m198789 = ykf[ykf$year %in% c(1987,1988,1989),]
+m198789$year = NULL
+m198789$yp = "1987-89"
+m198789 = unique(m198789)
+
+m198688 = ykf[ykf$year %in% c(1986,1987,1988),]
+m198688$year = NULL
+m198688$yp = "1986-88"
+m198688 = unique(m198688)
+
+m198587 = ykf[ykf$year %in% c(1985,1986,1987),]
+m198587$year = NULL
+m198587$yp = "1985-87"
+m198587 = unique(m198587)
+
+m198586 = ykf[ykf$year %in% c(1985,1986),]
+m198586$year = NULL
+m198586$yp = "1985-86"
+m198586 = unique(m198586)
+
+m1985 = ykf[ykf$year %in% c(1985),]
+m1985$year = NULL
+m1985$yp = "1985"
+m1985 = unique(m1985)
+
+#combining all the period wise keywords used
+ypk = rbind(m1985,m198586,m198587,m198688,m198789,m198890,m198991,m199092,m199193
+            ,m199294,m199395,m199496,m199597,m199698,m199799,m199800
+            ,m199901,m200002,m200103,m200204,m200305,m200406,m200507
+            ,m200608,m200709,m200810,m200911,m201012,m201113,m201214
+            ,m201315,m201416,m201517,m201618)
+
+row.names(ypk) = NULL
+
+# flag to say if key was present in prvious 3 year period
+ypk$fl1 = 0
+
+# joining period wise keys to keys data to check if a key was used in last 3 years
+newkeys = left_join(p3,ypk)
+#each 1 indicates new usage of keyword
+newkeys[is.na(newkeys)] <- 1
+
+# movie wise new key word counts
+newkeylist <-setNames(aggregate(newkeys$fl1, by=list(newkeys$pindex),FUN=sum, na.rm=TRUE),c("pindex", "innovflag"))
+
+#sum(newkeylist$innovflag)/nrow(newkeylist)
+
+# to find use of new combo of keys
+temp <- data.frame("m" = "", "kw1" = "")
+p21 = p2
+p21$year = NULL
+movies = p2$pindex
+
+# loop to get movie wise combo of keywords used
+movies= unique(movies)
+for (i in 1:length(movies))
+{
+  j = movies[i]
+  p21a = p21[p21$pindex==j,]
+  p21a <- p21a[order(p21a$keyword),]
+  m = unique(p21a$pindex)
+  kw = p21a$keyword
+  kw = unique(kw)
+  #kw1 = ifelse(length(kw)==1,kw,paste(kw, collapse = '|||'))
+  kw1 = paste(kw, collapse = '|||')
+  temp1 = cbind(m,kw1)
+  temp= rbind(temp1,temp)
+  temp1 = NULL
+}
+
+
+keycominit = temp
+names(keycominit) = c("pindex","keywordcombo")
+keycominit$pindex = as.numeric(as.character(keycominit$pindex))
+#joining years to movie wise keycombo data
+pk2 = left_join(keycominit,p1)
+
+#yearwise key combo used
+ykccf = pk2
+ykccf$pindex = NULL
+ykccf = unique(ykccf)
+
+# joining periods to key combo data
+pk3 = left_join(pk2,ymap)
+
+# period wise key combos used
+m201618 = ykccf[ykccf$year %in% c(2016,2017,2018),]
+m201618$year = NULL
+m201618$yp = "2016-18"
+m201618 = unique(m201618)
+
+m201517 = ykccf[ykccf$year %in% c(2015,2016,2017),]
+m201517$year = NULL
+m201517$yp = "2015-17"
+m201517 = unique(m201517)
+
+m201416 = ykccf[ykccf$year %in% c(2014,2015,2016),]
+m201416$year = NULL
+m201416$yp = "2014-16"
+m201416 = unique(m201416)
+
+m201315 = ykccf[ykccf$year %in% c(2013,2014,2015),]
+m201315$year = NULL
+m201315$yp = "2013-15"
+m201315 = unique(m201315)
+
+m201214 = ykccf[ykccf$year %in% c(2012,2013,2014),]
+m201214$year = NULL
+m201214$yp = "2012-14"
+m201214 = unique(m201214)
+
+m201113 = ykccf[ykccf$year %in% c(2011,2012,2013),]
+m201113$year = NULL
+m201113$yp = "2011-13"
+m201113 = unique(m201113)
+
+m201012 = ykccf[ykccf$year %in% c(2010,2011,2012),]
+m201012$year = NULL
+m201012$yp = "2010-12"
+m201012 = unique(m201012)
+
+m200911 = ykccf[ykccf$year %in% c(2009,2010,2011),]
+m200911$year = NULL
+m200911$yp = "2009-11"
+m200911 = unique(m200911)
+
+m200810 = ykccf[ykccf$year %in% c(2008,2009,2010),]
+m200810$year = NULL
+m200810$yp = "2008-10"
+m200810 = unique(m200810)
+
+m200709 = ykccf[ykccf$year %in% c(2007,2008,2009),]
+m200709$year = NULL
+m200709$yp = "2007-09"
+m200709 = unique(m200709)
+
+m200608 = ykccf[ykccf$year %in% c(2006,2007,2008),]
+m200608$year = NULL
+m200608$yp = "2006-08"
+m200608 = unique(m200608)
+
+m200507 = ykccf[ykccf$year %in% c(2005,2006,2007),]
+m200507$year = NULL
+m200507$yp = "2005-07"
+m200507 = unique(m200507)
+
+m200406 = ykccf[ykccf$year %in% c(2004,2005,2006),]
+m200406$year = NULL
+m200406$yp = "2004-06"
+m200406 = unique(m200406)
+
+m200305 = ykccf[ykccf$year %in% c(2003,2004,2005),]
+m200305$year = NULL
+m200305$yp = "2003-05"
+m200305 = unique(m200305)
+
+m200204 = ykccf[ykccf$year %in% c(2002,2003,2004),]
+m200204$year = NULL
+m200204$yp = "2002-04"
+m200204 = unique(m200204)
+
+m200103 = ykccf[ykccf$year %in% c(2001,2002,2003),]
+m200103$year = NULL
+m200103$yp = "2001-03"
+m200103 = unique(m200103)
+
+m200002 = ykccf[ykccf$year %in% c(2000,2001,2002),]
+m200002$year = NULL
+m200002$yp = "2000-02"
+m200002 = unique(m200002)
+
+m199901 = ykccf[ykccf$year %in% c(1999,2000,2001),]
+m199901$year = NULL
+m199901$yp = "1999-01"
+m199901 = unique(m199901)
+
+m199800 = ykccf[ykccf$year %in% c(1998,1999,2000),]
+m199800$year = NULL
+m199800$yp = "1998-00"
+m199800 = unique(m199800)
+
+m199799 = ykccf[ykccf$year %in% c(1997,1998,1999),]
+m199799$year = NULL
+m199799$yp = "1997-99"
+m199799 = unique(m199799)
+
+m199698 = ykccf[ykccf$year %in% c(1996,1997,1998),]
+m199698$year = NULL
+m199698$yp = "1996-98"
+m199698 = unique(m199698)
+
+m199597 = ykccf[ykccf$year %in% c(1995,1996,1997),]
+m199597$year = NULL
+m199597$yp = "1995-97"
+m199597 = unique(m199597)
+
+m199496 = ykccf[ykccf$year %in% c(1994,1995,1996),]
+m199496$year = NULL
+m199496$yp = "1994-96"
+m199496 = unique(m199496)
+
+m199395 = ykccf[ykccf$year %in% c(1993,1994,1995),]
+m199395$year = NULL
+m199395$yp = "1993-95"
+m199395 = unique(m199395)
+
+m199294 = ykccf[ykccf$year %in% c(1992,1993,1994),]
+m199294$year = NULL
+m199294$yp = "1992-94"
+m199294 = unique(m199294)
+
+m199193 = ykccf[ykccf$year %in% c(1991,1992,1993),]
+m199193$year = NULL
+m199193$yp = "1991-93"
+m199193 = unique(m199193)
+
+m199092 = ykccf[ykccf$year %in% c(1990,1991,1992),]
+m199092$year = NULL
+m199092$yp = "1990-92"
+m199092 = unique(m199092)
+
+m198991 = ykccf[ykccf$year %in% c(1989,1990,1991),]
+m198991$year = NULL
+m198991$yp = "1989-91"
+m198991 = unique(m198991)
+
+m198890 = ykccf[ykccf$year %in% c(1988,1989,1990),]
+m198890$year = NULL
+m198890$yp = "1988-90"
+m198890 = unique(m198890)
+
+m198789 = ykccf[ykccf$year %in% c(1987,1988,1989),]
+m198789$year = NULL
+m198789$yp = "1987-89"
+m198789 = unique(m198789)
+
+m198688 = ykccf[ykccf$year %in% c(1986,1987,1988),]
+m198688$year = NULL
+m198688$yp = "1986-88"
+m198688 = unique(m198688)
+
+m198587 = ykccf[ykccf$year %in% c(1985,1986,1987),]
+m198587$year = NULL
+m198587$yp = "1985-87"
+m198587 = unique(m198587)
+
+m198586 = ykccf[ykccf$year %in% c(1985,1986),]
+m198586$year = NULL
+m198586$yp = "1985-86"
+m198586 = unique(m198586)
+
+m1985 = ykccf[ykccf$year %in% c(1985),]
+m1985$year = NULL
+m1985$yp = "1985"
+m1985 = unique(m1985)
+
+#combining into 1 dataframe above data
+
+ypkcc = rbind(m1985,m198586,m198587,m198688,m198789,m198890,m198991,m199092,m199193
+              ,m199294,m199395,m199496,m199597,m199698,m199799,m199800
+              ,m199901,m200002,m200103,m200204,m200305,m200406,m200507
+              ,m200608,m200709,m200810,m200911,m201012,m201113,m201214
+              ,m201315,m201416,m201517,m201618)
+
+row.names(ypkcc) = NULL
+
+# flag to say if keycombo was present in period
+ypkcc$fl1 =0
+
+# joining period wise keycombo to keycombo data to check if a keycombo was used in last 3 years
+newkeyscombo = left_join(pk3,ypkcc)
+newkeyscombo[is.na(newkeyscombo)] <- 1
+
+# movie wise new keycombo counts
+newkeycombolist <-setNames(aggregate(newkeyscombo$fl1, by=list(newkeyscombo$pindex),FUN=sum, na.rm=TRUE),c("pindex", "innovcomboflag"))
+newkeycombolist = newkeycombolist[newkeycombolist$pindex!=0,]
+
+# movie wise new keys and new key combos used
+newlist = left_join(newkeylist,newkeycombolist)
+
+
+#loop to find year wise eigen vector centrality 
+
+efil = c("pindex","year","pcindex")
+e1 = prodfil_data[efil]
+e1 = unique(e1)
+atemp = NULL
+for(i in 1:length(yearlist))
+{
+  k = yearlist[i]
+  e2 = e1[e1$year==k,]
+  e2$year = NULL
+  e2$c=1
+  e3 = dcast(e2,pcindex~pindex)
+  e3[is.na(e3)] <- 0
+  
+  e4 = as.matrix(e3)
+  row.names(e4) = e4[,1]
+  e4 = e4[,-1]
+  class(e4) <- "numeric"
+  
+  e5 = e4 %*% t(e4)
+  
+  e6 = graph_from_adjacency_matrix(e5, mode = "undirected")
+  e7 = eigen_centrality(e6, directed = FALSE)
+  
+  
+  e8 = e7$vector
+  
+  e9 = as.data.frame(e8)
+  e9$pcindex = row.names(e9)
+  e9$year = k
+  row.names(e9) = NULL
+  atemp = rbind(atemp,e9)
+}
+
+#output is comp yearwise eigen vec centrality
+eigenlist = atemp
+names(eigenlist)[names(eigenlist) == "e8"] <- "evc"
+
+# generating dummy rows with 0s as padding
+y2 = c(1975,1976,1977,1978,1979,1980,1981,1982,1983,1984)
+yearlist2 = c(yearlist,y2) 
+pci = unique(eigenlist$pcindex)
+pcombos = expand.grid(pcindex=pci,year=yearlist2)
+pcombos$evc = 0
+
+eigenlist = rbind(eigenlist,pcombos)
+
+eigenlist <-setNames(aggregate(eigenlist$evc, by=list(eigenlist$pcindex,eigenlist$year),FUN=sum, na.rm=TRUE),c("pcindex", "year","evc"))
+
+# finding top quartile of eign values by comp
+library(zoo)
+fns = function(z) quantile(z,0.75)
+eigenlist = as.data.table(eigenlist)
+eigenlist[, lags := lapply(.SD, function(x) rollapplyr(x, list(-10:1), fns, partial = TRUE, fill = NA))
+               ,.SDcols = c('evc'),by = pcindex]
+
+eig2 = as.data.frame(eigenlist)
+names(eig2)[4] = "qevc"
+
+eig2$evc = NULL
+
+eigenfin = atemp
+names(eigenfin)[names(eigenfin) == "e8"] <- "evc"
+
+eig3 = left_join(eigenfin,eig2)
+eig4 = eig3
+# column to flag if a company was in top quartile or not
+eig4$eco = ifelse(eig4$evc>= eig4$qevc,1,0)
+
+#filtering above to keep only company yearwise top quartile flag
+cfil2 = c("year","pcindex","eco")
+c2list = eig4[cfil2]
+
+#joining top quartile comp list to above data
+efil2 = left_join(fil, c2list)
+
+# getting sum of the quartile flag to use later, by movie
+efil3 <-setNames(aggregate(efil2$eco, by=list(efil2$pindex),FUN=sum, na.rm=TRUE),c("movie","flag"))
+
+# creating a flag to count how many comps worked on a movie
+efil2$flag2 = 1
+
+#summing the flag to get comp count by movie
+efil4 <-setNames(aggregate(efil2$flag2, by=list(efil2$pindex),FUN=sum, na.rm=TRUE),c("movie","pct"))
+
+# movie wise no of comps and sum of qtscores
+efil5 = left_join(efil3,efil4)
+
+# flag to indicate solo prod
+efil5$prod1 = ifelse(efil5$pct==1,1,0)
+
+#more helper flags to categorize movies
+efil5$con = paste0(efil5$prod1,'x',efil5$flag)
+efil5$div =efil5$flag/efil5$pct
+
+#classifying movies based on conditions
+efil5$class1 = ifelse(efil5$con == '1x1',"Central solo productions","")
+efil5$class2= ifelse(efil5$con == '1x0',"Peripheral solo productions","")
+efil5$class3= ifelse(efil5$con == '0x0',"Peripheral co-productions","")
+efil5$class4= ifelse(efil5$div ==1 & efil5$prod1 == 0, "Central co-productions","")
+efil5$class5= ifelse(efil5$div !=1 & efil5$div !=0 & efil5$prod1 == 0, "Hybrid co-productions","")
+efil5$class = paste0(efil5$class1,efil5$class2,efil5$class3,efil5$class4,efil5$class5) 
+
+efil6 =efil5[dr2]
+
+
+# combining new keys/combos list to class wise list of movies
+efil7= efil6
+names(efil7)[names(efil7) == "movie"] <- "pindex"
+efil8 = left_join(efil7,newlist)
+efil8 = left_join(efil8,p1)
+efil8[is.na(efil8)] <- 0
+
+# aggregating year wise class wise count new of keys and key combos
+ech1<-setNames(aggregate(efil8$innovflag, by=list(efil8$year,efil8$class),FUN=sum, na.rm=TRUE),c("year", "class","keysum"))
+ech2<-setNames(aggregate(efil8$innovcomboflag, by=list(efil8$year,efil8$class),FUN=sum, na.rm=TRUE),c("year", "class","keycomsum"))
+
+
+#Q1a based on eigen centrality
+ggplot(data = ech1, aes(x=ech1$year, y=(ech1$keysum))) + geom_line(aes(colour=ech1$class))
+ggplot(data = ech2, aes(x=ech2$year, y=(ech2$keycomsum))) + geom_line(aes(colour=ech2$class))
+
+
+# combining new keys/combos list to class wise list of movies
+  fil7= fil6
+  names(fil7)[names(fil7) == "movie"] <- "pindex"
+  fil8 = left_join(fil7,newlist)
+  fil8 = left_join(fil8,p1)
+  fil8[is.na(fil8)] <- 0
+  
+  # aggregating year wise class wise count new of keys and key combos
+  ch1<-setNames(aggregate(fil8$innovflag, by=list(fil8$year,fil8$class),FUN=sum, na.rm=TRUE),c("year", "class","keysum"))
+  ch2<-setNames(aggregate(fil8$innovcomboflag, by=list(fil8$year,fil8$class),FUN=sum, na.rm=TRUE),c("year", "class","keycomsum"))
+  
+  #Q1a based on no of movies/year
+  ggplot(data = ch1, aes(x=ch1$year, y=(ch1$keysum))) + geom_line(aes(colour=ch1$class))
+  ggplot(data = ch2, aes(x=ch2$year, y=(ch2$keycomsum))) + geom_line(aes(colour=ch2$class))
+  
+  
+  
+  
+  
+  fil9 = left_join(fil8,fil)
+  fil9$c=1
+  # company year wise new keys/keycombos
+  keyct<-setNames(aggregate(fil9$innovflag, by=list(fil9$year,fil9$pcindex),FUN=sum, na.rm=TRUE),c("year", "pcindex","keysum"))
+  keycomct<-setNames(aggregate(fil9$innovcomboflag, by=list(fil9$year,fil9$pcindex),FUN=sum, na.rm=TRUE),c("year", "pcindex","keycomsum"))
+  
+  # company year wise count of central films
+  central = fil9[fil9$class %in% c("Central solo productions","Central co-productions"),]
+  centralsum<-setNames(aggregate(central$c, by=list(central$year,central$pcindex),FUN=sum, na.rm=TRUE),c("year", "pcindex","centralsum"))
+  
+  # company year wise count of peri films
+  peri = fil9[fil9$class %in% c("Peripheral solo productions","Peripheral co-productions"),]
+  perisum<-setNames(aggregate(peri$c, by=list(peri$year,peri$pcindex),FUN=sum, na.rm=TRUE),c("year", "pcindex","perisum"))
+  
+  # company year wise count of hyb films
+  hyb = fil9[fil9$class %in% c("Hybrid co-productions"),]
+  hybsum<-setNames(aggregate(hyb$c, by=list(hyb$year,hyb$pcindex),FUN=sum, na.rm=TRUE),c("year", "pcindex","hybsum"))
+  
+  # combining all above for regression
+  reg = merge(keyct,keycomct)
+  reg = left_join(reg,centralsum)
+  reg = left_join(reg,hybsum)
+  reg = left_join(reg,perisum)
+  reg[is.na(reg)] <- 0
+  
+  # getting box rev by comps
+  box = left_join(fil,rev_data)
+  box[is.na(box)] <- 0
+  boxsum<-setNames(aggregate(box$total_box, by=list(box$year,box$pcindex),FUN=sum, na.rm=TRUE),c("year", "pcindex","boxsum"))
+  
+  reg = left_join(reg,boxsum)
+  # getting yrs of operation
+  yrop = fil
+  yrop$pindex=NULL
+  yrop1<-setNames(aggregate(yrop$year, by=list(yrop$pcindex),FUN=min, na.rm=TRUE),c("pcindex","styear"))
+  yrop2<-setNames(aggregate(yrop$year, by=list(yrop$pcindex),FUN=max, na.rm=TRUE),c("pcindex","endyear"))
+  yrop3 = left_join(yrop1,yrop2)
+  yrop3$yrsoper = yrop3$endyear - yrop3$styear
+  reg = left_join(reg,yrop3)
+  
+  # getting subsidiary flag
+  sub = prodsub_data
+  sub$subsidiary = 1
+  sub$first_year = NULL
+  sub$last_year = NULL
+  sub = unique(sub)
+  reg = left_join(reg,sub)
+  reg[is.na(reg)] <- 0
+  
+  
+  
+  ##############################
+  pckey=left_join(fil,p2)
+  
+  pc1985 = pckey[pckey$year==1985,]
+  pc1985$pindex = NULL
+  pc1985 = unique(pc1985)
+  
+  pc1986 = pckey[pckey$year %in% c(1985,1986),]
+  pc1986$pindex = NULL
+  pc1986 = unique(pc1985)
+  pc1986$year = NULL
+  pc1986$year = 1986
+  
+  pc1987 = pckey[pckey$year %in% c(1985,1986,1987),]
+  pc1987$pindex = NULL
+  pc1987 = unique(pc1987)
+  pc1987$year = NULL
+  pc1987$year = 1987
+  
+  pc1988 = pckey[pckey$year %in% c(1987,1986,1988),]
+  pc1988$pindex = NULL
+  pc1988 = unique(pc1988)
+  pc1988$year = NULL
+  pc1988$year = 1988
+  
+  pc1989 = pckey[pckey$year %in% c(1987,1988,1989),]
+  pc1989$pindex = NULL
+  pc1989 = unique(pc1989)
+  pc1989$year = NULL
+  pc1989$year = 1989
+  
+  pc1990 = pckey[pckey$year %in% c(1990,1988,1989),]
+  pc1990$pindex = NULL
+  pc1990 = unique(pc1990)
+  pc1990$year = NULL
+  pc1990$year = 1990
+  
+  
+  pc1991 = pckey[pckey$year %in% c(1990,1991,1989),]
+  pc1991$pindex = NULL
+  pc1991 = unique(pc1991)
+  pc1991$year = NULL
+  pc1991$year = 1991
+  
+  
+  pc1992 = pckey[pckey$year %in% c(1990,1991,1992),]
+  pc1992$pindex = NULL
+  pc1992 = unique(pc1992)
+  pc1992$year = NULL
+  pc1992$year = 1992
+  
+  pc1993 = pckey[pckey$year %in% c(1993,1991,1992),]
+  pc1993$pindex = NULL
+  pc1993 = unique(pc1993)
+  pc1993$year = NULL
+  pc1993$year = 1993
+  
+  pc1994 = pckey[pckey$year %in% c(1994,1993,1992),]
+  pc1994$pindex = NULL
+  pc1994 = unique(pc1994)
+  pc1994$year = NULL
+  pc1994$year = 1994
+  
+  pc1995 = pckey[pckey$year %in% c(1993,1994,1995),]
+  pc1995$pindex = NULL
+  pc1995 = unique(pc1995)
+  pc1995$year = NULL
+  pc1995$year = 1995
+  
+  pc1996 = pckey[pckey$year %in% c(1994,1995,1996),]
+  pc1996$pindex = NULL
+  pc1996 = unique(pc1996)
+  pc1996$year = NULL
+  pc1996$year = 1996
+  
+  pc1997 = pckey[pckey$year %in% c(1995,1996,1997),]
+  pc1997$pindex = NULL
+  pc1997 = unique(pc1997)
+  pc1997$year = NULL
+  pc1997$year = 1997
+  
+  
+  pc1998 = pckey[pckey$year %in% c(1998,1996,1997),]
+  pc1998$pindex = NULL
+  pc1998 = unique(pc1998)
+  pc1998$year = NULL
+  pc1998$year = 1998
+  
+  
+  pc1999 = pckey[pckey$year %in% c(1997,1998,1999),]
+  pc1999$pindex = NULL
+  pc1999 = unique(pc1999)
+  pc1999$year = NULL
+  pc1999$year = 1999
+  
+  
+  pc2000 = pckey[pckey$year %in% c(1998,1999,2000),]
+  pc2000$pindex = NULL
+  pc2000 = unique(pc2000)
+  pc2000$year = NULL
+  pc2000$year = 2000
+  
+  pc2001 = pckey[pckey$year %in% c(2001,1999,2000),]
+  pc2001$pindex = NULL
+  pc2001 = unique(pc2001)
+  pc2001$year = NULL
+  pc2001$year = 2001
+  
+  
+  pc2002 = pckey[pckey$year %in% c(2001,2002,2000),]
+  pc2002$pindex = NULL
+  pc2002 = unique(pc2002)
+  pc2002$year = NULL
+  pc2002$year = 2002
+  
+  pc2003 = pckey[pckey$year %in% c(2001,2002,2003),]
+  pc2003$pindex = NULL
+  pc2003 = unique(pc2003)
+  pc2003$year = NULL
+  pc2003$year = 2003
+  
+  pc2004 = pckey[pckey$year %in% c(2004,2002,2003),]
+  pc2004$pindex = NULL
+  pc2004 = unique(pc2004)
+  pc2004$year = NULL
+  pc2004$year = 2004
+  
+  pc2005 = pckey[pckey$year %in% c(2004,2005,2003),]
+  pc2005$pindex = NULL
+  pc2005 = unique(pc2005)
+  pc2005$year = NULL
+  pc2005$year = 2005
+  
+  pc2006 = pckey[pckey$year %in% c(2004,2005,2006),]
+  pc2006$pindex = NULL
+  pc2006 = unique(pc2006)
+  pc2006$year = NULL
+  pc2006$year = 2006
+  
+  pc2007 = pckey[pckey$year %in% c(2006,2005,2007),]
+  pc2007$pindex = NULL
+  pc2007 = unique(pc2007)
+  pc2007$year = NULL
+  pc2007$year = 2007
+  
+  pc2008 = pckey[pckey$year %in% c(2006,2008,2007),]
+  pc2008$pindex = NULL
+  pc2008 = unique(pc2008)
+  pc2008$year = NULL
+  pc2008$year = 2008
+  
+  pc2009 = pckey[pckey$year %in% c(2009,2008,2007),]
+  pc2009$pindex = NULL
+  pc2009 = unique(pc2009)
+  pc2009$year = NULL
+  pc2009$year = 2009
+  
+  pc2010 = pckey[pckey$year %in% c(2009,2008,2010),]
+  pc2010$pindex = NULL
+  pc2010 = unique(pc2010)
+  pc2010$year = NULL
+  pc2010$year = 2010
+  
+  
+  pc2011 = pckey[pckey$year %in% c(2009,2011,2010),]
+  pc2011$pindex = NULL
+  pc2011 = unique(pc2011)
+  pc2011$year = NULL
+  pc2011$year = 2011
+  
+  
+  pc2012 = pckey[pckey$year %in% c(2012,2011,2010),]
+  pc2012$pindex = NULL
+  pc2012 = unique(pc2012)
+  pc2012$year = NULL
+  pc2012$year = 2012
+  
+  pc2013 = pckey[pckey$year %in% c(2012,2011,2013),]
+  pc2013$pindex = NULL
+  pc2013 = unique(pc2013)
+  pc2013$year = NULL
+  pc2013$year = 2013
+  
+  pc2014 = pckey[pckey$year %in% c(2012,2014,2013),]
+  pc2014$pindex = NULL
+  pc2014 = unique(pc2014)
+  pc2014$year = NULL
+  pc2014$year = 2014
+  
+  pc2015 = pckey[pckey$year %in% c(2015,2014,2013),]
+  pc2015$pindex = NULL
+  pc2015 = unique(pc2015)
+  pc2015$year = NULL
+  pc2015$year = 2015
+  
+  pc2016 = pckey[pckey$year %in% c(2016,2014,2015),]
+  pc2016$pindex = NULL
+  pc2016 = unique(pc2016)
+  pc2016$year = NULL
+  pc2016$year = 2016
+  
+  pc2017 = pckey[pckey$year %in% c(2015,2016,2017),]
+  pc2017$pindex = NULL
+  pc2017 = unique(pc2017)
+  pc2017$year = NULL
+  pc2017$year = 2017
+  
+  pc2018 = pckey[pckey$year %in% c(2018,2016,2017),]
+  pc2018$pindex = NULL
+  pc2018 = unique(pc2018)
+  pc2018$year = NULL
+  pc2018$year = 2018
+  
+  pc2019 = pckey[pckey$year %in% c(2018,2019,2017),]
+  pc2019$pindex = NULL
+  pc2019 = unique(pc2019)
+  pc2019$year = NULL
+  pc2019$year = 2019
+  
+  pcfinal = rbind(pc1985,pc1986,pc1987,pc1988,pc1989,pc1990,pc1991,pc1992,pc1993
+                  ,pc1994,pc1995,pc1996,pc1997,pc1998,pc1999,pc2000
+                  ,pc2001,pc2002,pc2003,pc2004,pc2005,pc2006,pc2007
+                  ,pc2008,pc2009,pc2010,pc2011,pc2012,pc2013,pc2014
+                  ,pc2015,pc2016,pc2017,pc2018,pc2019)
+  
+  pcfinal = pcfinal[complete.cases(pcfinal), ]
+  d1 = NULL
+  v1 = NULL
+  library(proxy)
+  btemp = NULL
+  for(i in 1:length(yearlist))
+  {
+    k = yearlist[i]
+    pcf = pcfinal[pcfinal$year==k,]
+    pcf$year = NULL
+    pcf$c=1
+    pcf1 = dcast(pcf,pcindex~keyword)
+    pcf1[is.na(pcf1)] <- 0
+    
+    pcf2 = as.matrix(pcf1)
+    row.names(pcf2) = pcf2[,1]
+    pcf2 = pcf2[,-1]
+    class(pcf2) <- "numeric"
+    
+    pcf3 = pcf2 %*% t(pcf2)
+    
+    jaccard.mat <- as.matrix(dist(pcf3, 'jaccard'))
+    year.avg.distance <- colMeans(jaccard.mat)
+    year.avg.distance = as.data.frame(year.avg.distance)
+    year.avg.distance$pcindex = row.names(year.avg.distance)
+    year.avg.distance$year =k
+    row.names(year.avg.distance) = NULL
+    year.coord <- cmdscale(jaccard.mat)
+    year.coord = as.data.frame(year.coord )
+    year.coord$pcindex = row.names(year.coord)
+    year.coord$year =k
+    row.names(year.coord) =NULL
+    names(year.coord) =c("pcindex","V1","V2")
+    
+    d1 = rbind(d1,year.avg.distance)
+    c1 = rbind(v1,year.coord)
+  
+  }
+  
+names(c1)= c('V1','V2','pcindex','year')
+  
+reg = left_join(reg,c1)
+reg[is.na(reg)] <- 0
+
+# count of movies per yr for producers
+filx = fil
+filx$c = 1
+filx<-setNames(aggregate(filx$c, by=list(filx$pcindex,filx$year),FUN=sum, na.rm=TRUE),c("pcindex","year","films"))
+reg = left_join(reg,filx)
+library(MASS)
+
+m1 =glm.nb(keysum ~ centralsum + hybsum + perisum +boxsum + V1+V2 + boxsum + yrsoper + subsidiary + factor(year),
+           reg, offset(films))
+  
+m1a =glm.nb(keycomsum ~ centralsum + hybsum + perisum +boxsum + V1+V2 + boxsum + yrsoper + subsidiary + factor(year),
+           reg, offset(films))
+
+#######eigen
+m1e =glm.nb(keysum ~ centralsum + hybsum + perisum +boxsum + V1+V2 + boxsum + yrsoper + subsidiary + factor(year),
+           reg2, offset(films))
+
+m1ea =glm.nb(keycomsum ~ centralsum + hybsum + perisum +boxsum + V1+V2 + boxsum + yrsoper + subsidiary + factor(year),
+            reg2, offset(films))
+
+efil8 = left_join(efil8,fil)
+efil8$c =1
+
+reg2 = reg
+
+reg3 = left_join(reg3,d1)
+reg2 = left_join(reg2,d1)
+
+
+ggplot(reg3, aes(year.avg.distance,keysum)) + geom_smooth(method= "loess", se = T) + labs(x = "Average Jaccard distance", y = "New keywords")
+
+ggplot(reg2, aes(year.avg.distance,keysum)) + geom_smooth(method= "loess", se = T) + labs(x = "Average Jaccard distance", y = "New keywords")
+
+# company year wise count of central films
+central = efil8[efil8$class %in% c("Central solo productions","Central co-productions"),]
+centralsum<-setNames(aggregate(central$c, by=list(central$year,central$pcindex),FUN=sum, na.rm=TRUE),c("year", "pcindex","centralsum"))
+
+# company year wise count of peri films
+peri = efil8[efil8$class %in% c("Peripheral solo productions","Peripheral co-productions"),]
+perisum<-setNames(aggregate(peri$c, by=list(peri$year,peri$pcindex),FUN=sum, na.rm=TRUE),c("year", "pcindex","perisum"))
+
+# company year wise count of hyb films
+hyb = efil8[efil8$class %in% c("Hybrid co-productions"),]
+hybsum<-setNames(aggregate(hyb$c, by=list(hyb$year,hyb$pcindex),FUN=sum, na.rm=TRUE),c("year", "pcindex","hybsum"))
+
+
+
+
+
+
+
+  # rev,coverage by comp-year
+  pbox1<-setNames(aggregate(box$total_box, by=list(box$pcindex,box$year),FUN=sum, na.rm=TRUE),c("pcindex","year","box"))
+  pbox2<-setNames(aggregate(box$release_coverage, by=list(box$pcindex,box$year),FUN=sum, na.rm=TRUE),c("pcindex","year","cov"))
+  
+  # combining above into 1 df
+  pbox3 = merge(pbox1,pbox2)
+  pbox3$return = ifelse(pbox3$cov==0,0,pbox3$box/pbox3$cov)
+  pbox3[is.na(pbox3)] <- 0
+ 
+  #loop to find yearwise std return per comp
+  ctemp = NULL
+  for( i in 1:length(yearlist))
+  {
+    k = yearlist[i]
+    pb = pbox3[pbox3$year==k,]
+    meanco = mean(pb$return)
+    sdco = (var(pb$return))^0.5
+    pb$stdreturn = (pb$return-meanco)/sdco
+    ctemp = rbind(ctemp,pb)
+  }
+  
+  stddata = ctemp
+  # data for regression
+  reg2 = left_join(reg2,stddata)
+  
+  #Q3
+  m3 = lm(stdreturn ~ centralsum + perisum + hybsum + V1 + V2 + boxsum + yrsoper + subsidiary + factor(year), reg2)
+  
+  m3 = lm(stdreturn ~ centralsum + perisum + hybsum + V1 + V2 + boxsum + yrsoper + subsidiary + factor(year) +keysum, reg2)
+  
+  
+  
+  
+  fil61 = fil6
+  names(fil61)[1] = "pindex" 
+  #class wise new key ct
+  h1 = left_join(fil61,newkeys)
+  h1 = left_join(h1,fil)
+  h1[is.na(h1)] <- 0
+  h1 = h1[h1$year!=0,]
+  
+  # new keys by solo prods
+  solokc = h1[h1$class %in% c("Central solo productions","Peripheral solo productions"),]
+  solokc = setNames(aggregate(solokc$fl1, by=list(solokc$pcindex,solokc$year),FUN=sum, na.rm=TRUE),c("pcindex","year","solonewkeys"))
+  
+  # new keys by hyb prods
+  hybkc = h1[h1$class == "Hybrid co-productions",]
+  hybkc = setNames(aggregate(hybkc$fl1, by=list(hybkc$pcindex,hybkc$year),FUN=sum, na.rm=TRUE),c("pcindex","year","hybnewkeys"))
+  
+  reg4 = left_join(reg2,solokc)
+  reg4 = left_join(reg4,hybkc)
+  reg4[is.na(reg4)] <- 0
+  #Q4
+  m4 = glm.nb(solonewkeys~hybnewkeys+centralsum + perisum +
+                hybsum + V1 + V2 + boxsum + yrsoper + subsidiary + factor(year), reg4)
+
+# new keys by cast members
+cast = cast_data
+ckeys = left_join(cast_data,newkeys)
+ckeysum = setNames(aggregate(ckeys$fl1, by=list(ckeys$nconst,ckeys$year),FUN=sum, na.rm=TRUE),c("nconst","year","inno"))
+
+# loop to get cast wise cumulative new keys
+castlist = unique(ckeysum$nconst)
+dtemp = NULL
+for(i in 1:length(castlist))
+{
+  k = castlist[i]
+  ck = ckeysum[ckeysum$nconst==k,]
+  ck <- ck[order(ck$year),]
+  ck$inncum = cumsum(ck$inno)
+  dtemp = rbind(dtemp,ck)
+}
+
+fg = dtemp
+
+#lag cum keys column
+fg1 = fg %>% 
+  group_by(nconst) %>% 
+  arrange(nconst,year) %>% 
+  mutate(prev = dplyr::lag(inncum))
+fg1 = as.data.frame(fg1)
+
+
+mlist = fil5[c('movie','class')]
+mlist = unique(mlist)
+c2 = ckeys[c('pindex','nconst')]
+c2 = unique(c2)
+# movie wise class wise cast with cumulative keys till prev yr
+c2 = left_join(c2,fg1)
+names(mlist)[1] ='pindex'
+
+# 
+c2 = left_join(c2,mlist)
+
+c2 = left_join(c2,centralsum)
+
+c2 = left_join(c2,perisum)
+
+c2 = left_join(c2,hybsum)
+#Q5
+
+
+m1ea =glm.nb(keycomsum ~ centralsum + hybsum + perisum +boxsum + V1+V2 + boxsum + yrsoper + subsidiary + factor(year),
+             reg2, offset(films))
+
+
+m = glm.nb()
+  
